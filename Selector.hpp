@@ -6,7 +6,6 @@
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_mixer.h>
 #include <algorithm>
-#include <filesystem>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -30,6 +29,7 @@ class Selector
     Mix_Chunk* clickSound;
     string font_path;
     TTF_Font* font;
+  TTF_Font* counterFont; // Smaller cached font for the counter
 
     int chosenFileI{};
     vec_string fileList;

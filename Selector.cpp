@@ -1,69 +1,52 @@
 #include "Selector.hpp"
 
 #include <cmath>
-#include <filesystem>
+#include <dirent.h>
 #include <iostream>
 #include <stdint.h>
 #include <unistd.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <functional>
+#include <cstring>
+#include <sstream>
+#include <chrono>
 
-namespace fs = std::filesystem;
+// no std::filesystem for GCC 7.5
 
 void Selector::renderCounter(SDL_Renderer* renderer, int currentOption, int totalOptions)
 {
-    // Define text color (white for example)
-    SDL_Color textColor = {255, 255, 255, 255}; // RGBA format: white
-
-    // Load a smaller font for the counter (e.g., size 12)
-    TTF_Font* smallFont = TTF_OpenFont(font_path.c_str(),
-        24); // Adjust the path and size as needed
-    if (smallFont == nullptr)
+    SDL_Color textColor = {255, 255, 255, 255};
+    if (!counterFont)
     {
-        std::cerr << "Failed to load small font: " << TTF_GetError() << std::endl;
+        std::cerr << "Counter font not initialized" << std::endl;
         return;
     }
 
-    // Create the counter text: "currentOption/totalOptions"
     string counterText = std::to_string(currentOption) + "/" + std::to_string(totalOptions);
-
-    // Render the text into an SDL_Surface using the smaller font
-    SDL_Surface* textSurface = TTF_RenderText_Solid(smallFont, counterText.c_str(), textColor);
-    if (textSurface == nullptr)
+    SDL_Surface* textSurface = TTF_RenderText_Solid(counterFont, counterText.c_str(), textColor);
+    if (!textSurface)
     {
         std::cerr << "Failed to create text surface: " << TTF_GetError() << std::endl;
-        TTF_CloseFont(smallFont); // Clean up the small font
         return;
     }
-
-    // Convert the SDL_Surface to SDL_Texture
     SDL_Texture* textTexture = SDL_CreateTextureFromSurface(renderer, textSurface);
-    if (textTexture == nullptr)
+    if (!textTexture)
     {
         std::cerr << "Failed to create texture: " << SDL_GetError() << std::endl;
         SDL_FreeSurface(textSurface);
-        TTF_CloseFont(smallFont); // Clean up the small font
         return;
     }
 
-    // Get window size to position the counter in the bottom right corner
     int windowWidth, windowHeight;
     SDL_GetWindowSize(window, &windowWidth, &windowHeight);
-
-    // Get text width and height from the surface
     int textWidth = textSurface->w;
     int textHeight = textSurface->h;
-
-    // Define destination rectangle for rendering the counter (bottom-right
-    // corner)
-    SDL_Rect dstRect = {
-        windowWidth - textWidth - 10, windowHeight - textHeight - 10, textWidth, textHeight};
-
-    // Render the text texture onto the screen
+    SDL_Rect dstRect = {windowWidth - textWidth - 10, windowHeight - textHeight - 10, textWidth,
+        textHeight};
     SDL_RenderCopy(renderer, textTexture, nullptr, &dstRect);
-
-    // Clean up
     SDL_FreeSurface(textSurface);
     SDL_DestroyTexture(textTexture);
-    TTF_CloseFont(smallFont); // Clean up the small font
 }
 
 // Number of files displayed per page
@@ -92,50 +75,61 @@ Mix_Chunk* Selector::loadClickSound(const vec_string& paths)
     return nullptr;   // Return nullptr if no path succeeded
 }
 
+static bool isRegularFile(const std::string& path)
+{
+    struct stat st;
+    if (stat(path.c_str(), &st) != 0) return false;
+    return S_ISREG(st.st_mode);
+}
+
+static bool isDirectory(const std::string& path)
+{
+    struct stat st;
+    if (stat(path.c_str(), &st) != 0) return false;
+    return S_ISDIR(st.st_mode);
+}
+
 void Selector::getFileList(string directory, bool recursive)
 {
-    auto matchFilters = [&](const std::filesystem::path& file) {
-        // Convert file name to lowercase
-        string filename = file.filename().string();
-        std::transform(filename.begin(), filename.end(), filename.begin(), ::tolower);
-
-        if (filters.empty())
-            return true; // No filters means all files are allowed
-
-        for (const auto& filter : filters)
+    auto matchFilters = [&](const std::string& filename) {
+        string lower = filename;
+        std::transform(lower.begin(), lower.end(), lower.begin(), ::tolower);
+        if (filters.empty()) return true;
+        for (const auto& f : filters)
         {
-            string lowerFilter = filter;
-            std::transform(lowerFilter.begin(), lowerFilter.end(), lowerFilter.begin(), ::tolower);
-
-            // Check if the filter is present in the file name
-            if (filename.find(lowerFilter) != string::npos)
-                return true;
+            string lf = f;
+            std::transform(lf.begin(), lf.end(), lf.begin(), ::tolower);
+            if (lower.find(lf) != string::npos) return true;
         }
         return false;
     };
 
-    if (recursive)
-    {
-        auto files{std::filesystem::recursive_directory_iterator{
-            directory, std::filesystem::directory_options::skip_permission_denied}};
-
-        for (auto& file : files)
+    std::function<void(const std::string&)> scan = [&](const std::string& dir) {
+        DIR* d = opendir(dir.c_str());
+        if (!d) return;
+        struct dirent* ent;
+        while ((ent = readdir(d)) != nullptr)
         {
-            if (std::filesystem::is_regular_file(file) && matchFilters(file.path()))
-                fileList.push_back(file.path().string());
-        }
-    } else
-    {
-        auto files{std::filesystem::directory_iterator{
-            directory, std::filesystem::directory_options::skip_permission_denied}};
+            const char* name = ent->d_name;
+            if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) continue;
+            std::string full = dir;
+            if (!full.empty() && full.back() != '/') full += '/';
+            full += name;
 
-        for (auto& file : files)
-        {
-            if (std::filesystem::is_regular_file(file) && matchFilters(file.path()))
-                fileList.push_back(file.path().string());
+            if (isDirectory(full))
+            {
+                if (recursive) scan(full);
+            }
+            else if (isRegularFile(full))
+            {
+                if (matchFilters(name)) fileList.push_back(full);
+            }
         }
-    }
+        closedir(d);
+    };
 
+    fileList.clear();
+    scan(directory);
     std::sort(fileList.begin(), fileList.end());
 }
 void Selector::drawFileList()
@@ -159,8 +153,7 @@ void Selector::drawFileList()
             SDL_DestroyTexture(textTexture);
             SDL_FreeSurface(textSurface);
 
-            // Call the method to display the counter in the bottom right corner
-            renderCounter(renderer, chosenFileI + 1, static_cast<int>(fileList.size()));
+            // Counter will be rendered once per frame, outside the loop
         }
     }
 }
@@ -214,6 +207,7 @@ void Selector::drawBackground()
 Selector::Selector(string title, string backgroundImage)
     : title(title)
     , backgroundTexture(nullptr)
+    , counterFont(nullptr)
     , chosenFileI(0)
 {
 #ifdef TRIMUI
@@ -240,11 +234,18 @@ Selector::Selector(string title, string backgroundImage)
         std::exit(2);
     }
 
-    renderer = SDL_CreateRenderer(window, -1, 0);
+    // Prefer VSYNC to cap refresh and reduce CPU usage (fallback to default if it fails)
+    renderer = SDL_CreateRenderer(
+        window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     if (!renderer)
     {
-        std::cerr << "Unable to create renderer" << '\n';
-        std::exit(2);
+        std::cerr << "VSYNC renderer failed: " << SDL_GetError() << "\nFalling back...\n";
+        renderer = SDL_CreateRenderer(window, -1, 0);
+        if (!renderer)
+        {
+            std::cerr << "Unable to create renderer" << '\n';
+            std::exit(2);
+        }
     }
 
 #ifdef TRIMUI
@@ -285,9 +286,16 @@ Selector::Selector(string title, string backgroundImage)
     if (len != -1)
     {
         buff[len] = '\0';
-        fs::path bin_folder = std::filesystem::path(buff).parent_path();
-        fs::path font = "Anonymous_Pro.ttf";
-        font_path = (bin_folder / font).string();
+        // Derive from executable directory without std::filesystem
+        std::string path(buff);
+        size_t pos = path.find_last_of('/');
+        if (pos != std::string::npos)
+            font_path = path.substr(0, pos + 1) + "Anonymous_Pro.ttf";
+    }
+    if (font_path.empty())
+    {
+        // Fallback to current working directory
+        font_path = "Anonymous_Pro.ttf";
     }
 
     font = TTF_OpenFont(font_path.c_str(), 100);
@@ -296,6 +304,10 @@ Selector::Selector(string title, string backgroundImage)
         std::cerr << "Unable to open font file." << '\n';
         std::exit(2);
     }
+    // Create a small cached font for the counter
+    counterFont = TTF_OpenFont(font_path.c_str(), 24);
+    if (!counterFont)
+        std::cerr << "Failed to load counter font: " << TTF_GetError() << std::endl;
 }
 
 Selector::~Selector()
@@ -308,6 +320,8 @@ Selector::~Selector()
 
     if (font)
         TTF_CloseFont(font);
+    if (counterFont)
+        TTF_CloseFont(counterFont);
     if (backgroundTexture)
         SDL_DestroyTexture(backgroundTexture);
     if (controller)
@@ -347,93 +361,109 @@ int Selector::run()
     const int scrollIntervalMs = 220; // Adjust scrolling speed here
     bool dpadDownPressed = false;
     bool dpadUpPressed = false;
+    bool needsRedraw = true; // Redraw only on changes
 
     while (1)
     {
         SDL_Event event;
-        while (SDL_PollEvent(&event))
+        // Wait up to ~16ms for an event to reduce busy-waiting; then drain queue
+        if (SDL_WaitEventTimeout(&event, 16))
         {
-            switch (event.type)
+            // Handle the event we waited for
+            do
             {
-            case SDL_QUIT:
-                return -1;
-            case SDL_KEYDOWN:
-                switch (event.key.keysym.sym)
+                switch (event.type)
                 {
-                case SDLK_ESCAPE:
+                case SDL_QUIT:
                     return -1;
-                case SDLK_DOWN:
-                case SDLK_s:
-                    if (chosenFileI < static_cast<int>(fileList.size()) - 1)
+                case SDL_KEYDOWN:
+                    switch (event.key.keysym.sym)
                     {
-                        ++chosenFileI;
-                        Mix_PlayChannel(-1, clickSound, 0);
+                    case SDLK_ESCAPE:
+                        return -1;
+                    case SDLK_DOWN:
+                    case SDLK_s:
+                        if (chosenFileI < static_cast<int>(fileList.size()) - 1)
+                        {
+                            ++chosenFileI;
+                            if (clickSound) Mix_PlayChannel(-1, clickSound, 0);
+                            needsRedraw = true;
+                        }
+                        break;
+                    case SDLK_UP:
+                    case SDLK_w:
+                        if (chosenFileI > 0)
+                        {
+                            --chosenFileI;
+                            if (clickSound) Mix_PlayChannel(-1, clickSound, 0);
+                            needsRedraw = true;
+                        }
+                        break;
+                    case SDLK_RETURN:
+                        return -1;
                     }
                     break;
-                case SDLK_UP:
-                case SDLK_w:
-                    if (chosenFileI > 0)
+                case SDL_CONTROLLERBUTTONDOWN:
+                    switch (event.cbutton.button)
                     {
-                        --chosenFileI;
-                        Mix_PlayChannel(-1, clickSound, 0);
+                    case SDL_CONTROLLER_BUTTON_DPAD_DOWN:
+                        dpadDownPressed = true;
+                        lastDpadPressTime = std::chrono::steady_clock::now();
+                        if (chosenFileI < static_cast<int>(fileList.size()) - 1)
+                        {
+                            ++chosenFileI;
+                            if (clickSound) Mix_PlayChannel(-1, clickSound, 0);
+                        needsRedraw = true;
+                        }
+                        break;
+                    case SDL_CONTROLLER_BUTTON_DPAD_UP:
+                        dpadUpPressed = true;
+                        lastDpadPressTime = std::chrono::steady_clock::now();
+                        if (chosenFileI > 0)
+                        {
+                            --chosenFileI;
+                            if (clickSound) Mix_PlayChannel(-1, clickSound, 0);
+                        needsRedraw = true;
+                        }
+                        break;
+                    case SDL_CONTROLLER_BUTTON_B:
+                        return 1;
+                    case SDL_CONTROLLER_BUTTON_A:
+                        return -1;
+                    case SDL_CONTROLLER_BUTTON_LEFTSHOULDER: // L1
+                        if (chosenFileI > 0)
+                        {
+                            chosenFileI -= filesPerPage;
+                            if (chosenFileI < 0)
+                                chosenFileI = 0; // Prevent underflow
+                            if (clickSound) Mix_PlayChannel(-1, clickSound, 0);
+                        needsRedraw = true;
+                        }
+                        break;
+                    case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: // R1
+                        if (chosenFileI < static_cast<int>(fileList.size()) - 1)
+                        {
+                            chosenFileI += filesPerPage;
+                            if (chosenFileI >= static_cast<int>(fileList.size()))
+                                chosenFileI = static_cast<int>(fileList.size()) - 1; // Prevent overflow
+                            if (clickSound) Mix_PlayChannel(-1, clickSound, 0);
+                        needsRedraw = true;
+                        }
+                        break;
                     }
                     break;
-                case SDLK_RETURN:
-                    return -1;
+                case SDL_WINDOWEVENT:
+                    // Redraw on expose, resize, etc.
+                    needsRedraw = true;
+                    break;
+                case SDL_CONTROLLERBUTTONUP:
+                    if (event.cbutton.button == SDL_CONTROLLER_BUTTON_DPAD_DOWN)
+                        dpadDownPressed = false;
+                    else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_DPAD_UP)
+                        dpadUpPressed = false;
+                    break;
                 }
-                break;
-            case SDL_CONTROLLERBUTTONDOWN:
-                switch (event.cbutton.button)
-                {
-                case SDL_CONTROLLER_BUTTON_DPAD_DOWN:
-                    dpadDownPressed = true;
-                    lastDpadPressTime = std::chrono::steady_clock::now();
-                    if (chosenFileI < static_cast<int>(fileList.size()) - 1)
-                    {
-                        ++chosenFileI;
-                        Mix_PlayChannel(-1, clickSound, 0);
-                    }
-                    break;
-                case SDL_CONTROLLER_BUTTON_DPAD_UP:
-                    dpadUpPressed = true;
-                    lastDpadPressTime = std::chrono::steady_clock::now();
-                    if (chosenFileI > 0)
-                    {
-                        --chosenFileI;
-                        Mix_PlayChannel(-1, clickSound, 0);
-                    }
-                    break;
-                case SDL_CONTROLLER_BUTTON_B:
-                    return 1;
-                case SDL_CONTROLLER_BUTTON_A:
-                    return -1;
-                case SDL_CONTROLLER_BUTTON_LEFTSHOULDER: // L1
-                    if (chosenFileI > 0)
-                    {
-                        chosenFileI -= filesPerPage;
-                        if (chosenFileI < 0)
-                            chosenFileI = 0; // Prevent underflow
-                        Mix_PlayChannel(-1, clickSound, 0);
-                    }
-                    break;
-                case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: // R1
-                    if (chosenFileI < static_cast<int>(fileList.size()) - 1)
-                    {
-                        chosenFileI += filesPerPage;
-                        if (chosenFileI >= static_cast<int>(fileList.size()))
-                            chosenFileI = static_cast<int>(fileList.size()) - 1; // Prevent overflow
-                        Mix_PlayChannel(-1, clickSound, 0);
-                    }
-                    break;
-                }
-                break;
-            case SDL_CONTROLLERBUTTONUP:
-                if (event.cbutton.button == SDL_CONTROLLER_BUTTON_DPAD_DOWN)
-                    dpadDownPressed = false;
-                else if (event.cbutton.button == SDL_CONTROLLER_BUTTON_DPAD_UP)
-                    dpadUpPressed = false;
-                break;
-            }
+            } while (SDL_PollEvent(&event));
         }
         auto currentTime = std::chrono::steady_clock::now();
         auto timeSinceLastPress =
@@ -446,7 +476,8 @@ int Selector::run()
             if (chosenFileI < static_cast<int>(fileList.size()) - 1)
             {
                 ++chosenFileI;
-                Mix_PlayChannel(-1, clickSound, 0);
+        if (clickSound) Mix_PlayChannel(-1, clickSound, 0);
+                needsRedraw = true;
             }
         } else if (dpadUpPressed && timeSinceLastPress >= scrollIntervalMs)
         {
@@ -454,18 +485,24 @@ int Selector::run()
             if (chosenFileI > 0)
             {
                 --chosenFileI;
-                Mix_PlayChannel(-1, clickSound, 0);
+        if (clickSound) Mix_PlayChannel(-1, clickSound, 0);
+                needsRedraw = true;
             }
         }
-        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
-        SDL_RenderClear(renderer);
+        if (needsRedraw)
+        {
+            SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+            SDL_RenderClear(renderer);
 
-        drawBackground();
-        drawSelector();
-        drawTitle(title);
-        drawFileList();
-        SDL_RenderPresent(renderer);
-        SDL_Delay(20);
+            drawBackground();
+            drawSelector();
+            drawTitle(title);
+            drawFileList();
+            // Render selection counter once per frame
+            renderCounter(renderer, chosenFileI + 1, static_cast<int>(fileList.size()));
+            SDL_RenderPresent(renderer);
+            needsRedraw = false;
+        }
     }
 }
 
