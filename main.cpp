@@ -1,128 +1,88 @@
-#include "sdl_file_chooser.h"
-#include <iostream>
-#include <fstream>
-#include <vector>
-#include <string>
+#include "Selector.hpp"
 
-// Function to replace all occurrences of \n with a real line feed
-std::string replaceLiteralNewlines(const std::string &str)
+#include <fstream>
+#include <iostream>
+#define HELP_MSG                                                                                   \
+    "Usage: filechooser [options]\n"                                                               \
+    "Options:\n"                                                                                   \
+    "  -t <title>       Set a title to the selector.\n"                                            \
+    "  -i <image>       Set a background image.\n"                                                 \
+    "  -d <directory>   Set a directory to select files from.\n"                                   \
+    "  -r               Use with directory. Add files from folder recursivly.\n"                   \
+    "  -f <filter>      Use with directory. Must be last flag.\n"                                  \
+    "  -c <choices> ... Get custom strings. Must be last flag.\n"                                  \
+    "  -cf <file> ...   Get custom strings from a file lines.\n"
+
+void customFromFile(string file, vec_string& customChoices)
 {
-    std::string result = str;
-    size_t pos = 0;
-    while ((pos = result.find("\\n", pos)) != std::string::npos)
+    std::ifstream inputFile(file);
+    if (!inputFile)
     {
-        result.replace(pos, 2, "\n");
-        pos += 1; // Advance one position after replacement
+        std::cerr << "Error: Cannot open file " << file << "\n";
+        return;
     }
-    return result;
+    string line;
+    while (std::getline(inputFile, line))
+        if (!line.empty())
+            customChoices.push_back(line);
 }
 
-int main(int argc, char *argv[])
+int main(int argc, char* argv[])
 {
-    std::string directory = ".";
-    std::string title = FILECHOOSER_TITLE;
-    std::string backgroundImage;
+    vec_string arguments(argv, argv + argc);
+    auto arg = arguments.begin();
+
+    string title = FILECHOOSER_TITLE;
+    string backgroundImage;
+    string directory = ".";
+    vec_string filters; // Container for filters
     bool recursive = false;
-    std::vector<std::string> customChoices;
-    bool useCustomChoices = false;
-    std::vector<std::string> filters; // Container for filters
-
-    // Parse arguments
-    for (int i = 1; i < argc; ++i)
+    vec_string customChoices;
+    //
+    while (++arg < arguments.end())
     {
-        if (strcmp(argv[i], "-d") == 0 && i + 1 < argc)
-        {
-            directory = argv[++i];
-        }
-        else if (strcmp(argv[i], "-t") == 0 && i + 1 < argc)
-        {
-            if (strlen(argv[i + 1]) > 0)
-            {
-                title = replaceLiteralNewlines(argv[++i]);
-            }
-            else
-            {
-                std::cerr << "Error: Title cannot be empty. Using default title." << std::endl;
-                title = " ";
-            }
-        }
-        else if (strcmp(argv[i], "-i") == 0 && i + 1 < argc)
-        {
-            backgroundImage = argv[++i];
-        }
-        else if (strcmp(argv[i], "-r") == 0)
-        {
+        if (*arg == "-t" && arg < arguments.end() - 1 &&
+            (arg + 1)->length() > 0) // Set a title to the selector.
+            title = *++arg;
+        else if (*arg == "-i" && arg < arguments.end() - 1) // Set a background image.
+            backgroundImage = *++arg;
+        else if (*arg == "-d" && arg < arguments.end() - 1) // Set a directory to select files from.
+            directory = *++arg;
+        else if (*arg == "-r") // User with directory. Add files from folder recursivly.
             recursive = true;
-        }
-        else if (strcmp(argv[i], "-c") == 0)
+        else if (*arg == "-f") // Use with directory. Must be last flag.
+            while (arg < arguments.end() - 1)
+                filters.push_back(*++arg);
+        else if (*arg == "-c") // Get custom strings. Must be last flag.
+            while (arg < arguments.end() - 1)
+                customChoices.push_back(*++arg);
+        else if (*arg == "-cf" &&
+                 arg < arguments.end() - 1) // Get custom strings from a file lines.
+            customFromFile(*++arg, customChoices);
+        else
         {
-            useCustomChoices = true;
-            while (i + 1 < argc && argv[i + 1][0] != '-')
-            {
-                customChoices.push_back(argv[++i]);
-            }
-        }
-        else if (strcmp(argv[i], "-cf") == 0)
-        {
-            // Collect choices from a file
-            if (++i < argc)
-            {
-                std::ifstream inputFile(argv[i]);
-                if (!inputFile)
-                {
-                    std::cerr << "Error: Cannot open file " << argv[i] << "\n";
-                    return 1;
-                }
-                std::string line;
-                while (std::getline(inputFile, line))
-                {
-                    if (!line.empty())
-                    {
-                        customChoices.push_back(line);
-                    }
-                }
-                useCustomChoices = true; // Ensure custom choices are used
-            }
-            else
-            {
-                std::cerr << "Error: No file specified for -cf option\n";
-                return 1;
-            }
-        }
-        else if (strcmp(argv[i], "-f") == 0)
-        {
-            // Collect filters
-            while (i + 1 < argc && argv[i + 1][0] != '-')
-            {
-                filters.push_back(argv[++i]);
-            }
+            std::cerr << HELP_MSG;
+            return 1;
         }
     }
 
-    // Choose the correct FileChooser constructor based on the conditions
-    FileChooser *fileChooser = nullptr;
-    if (useCustomChoices)
-    {
-        fileChooser = new FileChooser(customChoices, title, backgroundImage);
-    }
+    Selector* selector = new Selector(title, backgroundImage);
+
+    if (!customChoices.empty())
+        selector->setCustom(customChoices);
     else
-    {
-        fileChooser = new FileChooser(directory, title, backgroundImage, recursive, filters); // Pass filters to FileChooser
-    }
+        selector->setFolder(directory, recursive, filters);
 
-    // Get the chosen file
-    std::string chosenFile = fileChooser->get();
-
-    if (!chosenFile.empty())
-    {
-        std::cout << "You selected: " << chosenFile << "\n";
-    }
-    else
+    if (selector->run() == -1)
     {
         std::cout << "No file selected\n";
+    } else
+    {
+        string selected = selector->get();
+        std::cout << "You selected: " << selected << "\n";
     }
 
-    delete fileChooser; // Clean up the dynamically allocated object
+    delete selector; // Clean up the dynamically allocated object
 
     return 0;
 }

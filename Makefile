@@ -1,41 +1,28 @@
-# Makefile for compiling SDL2 apps
+NAME=selector
 
-CC := g++
+SRCS := main.cpp Selector.cpp
+OBJS := $(SRCS:.cpp=.o)
 
-# compiler flags
-CFLAGS :=  `sdl2-config --libs --cflags` -ggdb3 -O0 --std=c++17 -Wall -lSDL2_image -lm -lSDL2_ttf -lSDL2_mixer
+CXX := g++
+CXXFLAGS :=  -ggdb3 -O0 --std=c++17 -Werror -Wextra -Wall -Wpedantic
+TARGET_ARCH := -march=armv8-a+crc+crypto+simd -mtune=cortex-a53 -mcpu=cortex-a53+crc 
+LDFLAGS := `sdl2-config --libs --cflags`
+LDLIBS := -lm -lSDL2 -lSDL2_image -lSDL2_ttf -lSDL2_mixer
 
-# headers
-HDRS := *.h
+$(NAME): $(OBJS)
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) $(OBJS) $(LDLIBS) -o $(NAME)
 
-# source files
-SRCS := *.cpp
+trimui: $(OBJS)
+	$(CXX) $(CXXFLAGS) $(TARGET_ARCH) $(OBJS) $(LDFLAGS) $(LDLIBS) -DTRIMUI -o $(NAME)
 
-# generate names of object files
-OBJS := $(SRCS:.c=.o)
+all: $(NAME)
 
-# output executable name
-EXEC := selector
-
-# default recipe
-all: $(EXEC)
- 
-showfont: showfont.c Makefile
-	$(CC) -o $@ $@.c $(CFLAGS) $(LIBS)
-
-glfont: glfont.c Makefile
-	$(CC) -o $@ $@.c $(CFLAGS) $(LIBS)
-
-# recipe for building the final executable
-$(EXEC): $(OBJS) $(HDRS) Makefile
-	$(CC) -o $@ $(OBJS) $(CFLAGS)
-
-# recipe for building object files
-#$(OBJS): $(@:.o=.c) $(HDRS) Makefile
-#	$(CC) -o $@ $(@:.o=.c) -c $(CFLAGS)
-
-# recipe to clean the workspace
 clean:
-	rm -f $(EXEC) $(OBJS)
+	rm -f $(OBJS)
 
-.PHONY: all clean
+fclean: clean
+	rm -f $(NAME)
+
+re: fclean all
+
+.PHONY: all clean fclean re trimui

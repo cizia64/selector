@@ -27,11 +27,15 @@ To launch the application, use the following command-line options to customize i
 
 - **`-c <option1> <option2> ...`**  
   Allows you to specify a custom list of options instead of listing files. These options are displayed in the selection window for the user to choose from.
+  ( Must be the last used flags )
 
 ## Interactive Controls
 
 - **Arrow Keys / D-Pad**  
   Navigate through the list of files or options.
+
+- **L1/L2**
+  Jump 10 items backward/forward in the list
 
 - **Enter / A Button**  
   Select the highlighted item.
@@ -63,7 +67,7 @@ To launch the application, use the following command-line options to customize i
 
 6. **Custom Options List**
 
-   `./selector -c "Option 1" "Option 2" "Option 3" -t "Select an Option" -i /path/to/background.png`
+   `./selector -t "Select an Option" -i /path/to/background.png -c "Option 1" "Option 2" "Option 3"`
 
 ## Notes
 
