@@ -28,8 +28,10 @@ class Selector
 
     Mix_Chunk* clickSound;
     string font_path;
-    TTF_Font* font;
+  TTF_Font* font;       // Title font (unchanged)
+  TTF_Font* listFont;   // Font for file list
   TTF_Font* counterFont; // Smaller cached font for the counter
+  int listFontSize;     // Point size for list font
 
     int chosenFileI{};
     vec_string fileList;
@@ -46,7 +48,7 @@ class Selector
     void drawBackground();
 
   public:
-    Selector(string title, string backgroundImage = "");
+  Selector(string title, string backgroundImage = "", int listFontSize = 100);
     ~Selector();
     void setFolder(string directory, bool recursive = false, vec_string filters = {});
     void setCustom(vec_string customChoices);

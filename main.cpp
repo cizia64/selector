@@ -11,7 +11,8 @@
     "  -r               Use with directory. Add files from folder recursivly.\n"                   \
     "  -f <filter>      Use with directory. Must be last flag.\n"                                  \
     "  -c <choices> ... Get custom strings. Must be last flag.\n"                                  \
-    "  -cf <file> ...   Get custom strings from a file lines.\n"
+    "  -cf <file> ...   Get custom strings from a file lines.\n"                       \
+    "  -fs <size>       Set list font size (pt). Default matches previous visual size.\n"
 
 void customFromFile(string file, vec_string& customChoices)
 {
@@ -38,6 +39,7 @@ int main(int argc, char* argv[])
     vec_string filters; // Container for filters
     bool recursive = false;
     vec_string customChoices;
+    int listFontSize = -1; // negative means use default
     //
     while (++arg < arguments.end())
     {
@@ -59,6 +61,15 @@ int main(int argc, char* argv[])
         else if (*arg == "-cf" &&
                  arg < arguments.end() - 1) // Get custom strings from a file lines.
             customFromFile(*++arg, customChoices);
+        else if (*arg == "-fs" && arg < arguments.end() - 1)
+        {
+            try {
+                listFontSize = std::stoi(*++arg);
+            } catch (...) {
+                std::cerr << "Invalid -fs value\n";
+                return 1;
+            }
+        }
         else
         {
             std::cerr << HELP_MSG;
@@ -66,7 +77,7 @@ int main(int argc, char* argv[])
         }
     }
 
-    Selector* selector = new Selector(title, backgroundImage);
+    Selector* selector = new Selector(title, backgroundImage, listFontSize);
 
     if (!customChoices.empty())
         selector->setCustom(customChoices);

@@ -134,17 +134,27 @@ void Selector::getFileList(string directory, bool recursive)
 }
 void Selector::drawFileList()
 {
+    // Match previous look: original code rendered font size ~100 then divided by 5
+    const float baseDiv = 5.0f;
+    int rawLine = listFont ? TTF_FontLineSkip(listFont) : 100;
+    if (rawLine <= 0) rawLine = 100;
+    int lineAdvance = static_cast<int>(rawLine / baseDiv);
+    if (lineAdvance < 12) lineAdvance = 12; // minimal spacing guard
+    int baseY = 500;
+
     for (int i = 0; i < static_cast<int>(fileList.size()); ++i)
     {
-        int y = 500 - chosenFileI * 30 + i * 30;
+        int y = baseY - chosenFileI * lineAdvance + i * lineAdvance;
 
         if (y < 1000 && y > 0)
         {
-            SDL_Surface* textSurface = TTF_RenderText_Blended(font, fileList[i].c_str(),
+            SDL_Surface* textSurface = TTF_RenderText_Blended(listFont ? listFont : font, fileList[i].c_str(),
                 {255, 255, 255, static_cast<uint8_t>(255 - std::abs(500 - y) / 2)});
 
             SDL_Rect sourceRect{0, 0, textSurface->w, textSurface->h};
-            SDL_Rect targetRect{0, y, textSurface->w / 5, textSurface->h / 5};
+            // Scale down to match previous visual size convention
+            SDL_Rect targetRect{0, y, static_cast<int>(textSurface->w / baseDiv),
+                static_cast<int>(textSurface->h / baseDiv)};
 
             SDL_Texture* textTexture{SDL_CreateTextureFromSurface(renderer, textSurface)};
 
@@ -189,7 +199,15 @@ void Selector::drawTitle(const string& title)
 void Selector::drawSelector()
 {
     SDL_SetRenderDrawColor(renderer, 100, 100, 100, 100);
-    SDL_Rect selectorRect{0, 500, 800, 25};
+    int windowWidth, windowHeight;
+    SDL_GetWindowSize(window, &windowWidth, &windowHeight);
+    const float baseDiv = 5.0f; // Keep consistent with drawFileList scaling
+    int rawLine = listFont ? TTF_FontLineSkip(listFont) : 100;
+    if (rawLine <= 0) rawLine = 100;
+    int lineAdvance = static_cast<int>(rawLine / baseDiv);
+    if (lineAdvance < 12) lineAdvance = 12;
+    int baseY = 500;
+    SDL_Rect selectorRect{0, baseY, windowWidth, lineAdvance};
     SDL_RenderFillRect(renderer, &selectorRect);
 }
 
@@ -204,10 +222,12 @@ void Selector::drawBackground()
 //                                    PUBLIC
 //          ╘═════════════════════════════════════════════════════════╛
 
-Selector::Selector(string title, string backgroundImage)
+Selector::Selector(string title, string backgroundImage, int listFontSize)
     : title(title)
     , backgroundTexture(nullptr)
+    , listFont(nullptr)
     , counterFont(nullptr)
+    , listFontSize(listFontSize)
     , chosenFileI(0)
 {
 #ifdef TRIMUI
@@ -304,6 +324,15 @@ Selector::Selector(string title, string backgroundImage)
         std::cerr << "Unable to open font file." << '\n';
         std::exit(2);
     }
+    // Use provided listFontSize or default to 100 (old base size) if invalid/non-positive
+    if (this->listFontSize <= 0) this->listFontSize = 100;
+    listFont = TTF_OpenFont(font_path.c_str(), this->listFontSize);
+    if (!listFont)
+    {
+        std::cerr << "Failed to load list font, falling back to title font size: "
+                  << TTF_GetError() << std::endl;
+        listFont = font; // fall back; do not close twice
+    }
     // Create a small cached font for the counter
     counterFont = TTF_OpenFont(font_path.c_str(), 24);
     if (!counterFont)
@@ -318,8 +347,10 @@ Selector::~Selector()
         clickSound = nullptr;
     }
 
-    if (font)
+    if (font && font != listFont)
         TTF_CloseFont(font);
+    if (listFont && listFont != font)
+        TTF_CloseFont(listFont);
     if (counterFont)
         TTF_CloseFont(counterFont);
     if (backgroundTexture)
