@@ -398,6 +398,8 @@ int Selector::run()
     {
         SDL_Event event;
         // Wait up to ~16ms for an event to reduce busy-waiting; then drain queue
+        bool shouldExit = false;
+        int exitCode = -1;
         if (SDL_WaitEventTimeout(&event, 16))
         {
             // Handle the event we waited for
@@ -406,12 +408,16 @@ int Selector::run()
                 switch (event.type)
                 {
                 case SDL_QUIT:
-                    return -1;
+                    shouldExit = true;
+                    exitCode = -1;
+                    break;
                 case SDL_KEYDOWN:
                     switch (event.key.keysym.sym)
                     {
                     case SDLK_ESCAPE:
-                        return -1;
+                        shouldExit = true;
+                        exitCode = -1;
+                        break;
                     case SDLK_DOWN:
                     case SDLK_s:
                         if (chosenFileI < static_cast<int>(fileList.size()) - 1)
@@ -431,7 +437,9 @@ int Selector::run()
                         }
                         break;
                     case SDLK_RETURN:
-                        return -1;
+                        shouldExit = true;
+                        exitCode = -1;
+                        break;
                     }
                     break;
                 case SDL_CONTROLLERBUTTONDOWN:
@@ -458,9 +466,13 @@ int Selector::run()
                         }
                         break;
                     case SDL_CONTROLLER_BUTTON_B:
-                        return 1;
+                        shouldExit = true;
+                        exitCode = 1;
+                        break;
                     case SDL_CONTROLLER_BUTTON_A:
-                        return -1;
+                        shouldExit = true;
+                        exitCode = -1;
+                        break;
                     case SDL_CONTROLLER_BUTTON_LEFTSHOULDER: // L1
                         if (chosenFileI > 0)
                         {
@@ -533,6 +545,19 @@ int Selector::run()
             renderCounter(renderer, chosenFileI + 1, static_cast<int>(fileList.size()));
             SDL_RenderPresent(renderer);
             needsRedraw = false;
+        }
+        if (shouldExit)
+        {
+            // Force a redraw before exit to ensure the last selection is visible
+            SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+            SDL_RenderClear(renderer);
+            drawBackground();
+            drawSelector();
+            drawTitle(title);
+            drawFileList();
+            renderCounter(renderer, chosenFileI + 1, static_cast<int>(fileList.size()));
+            SDL_RenderPresent(renderer);
+            return exitCode;
         }
     }
 }
