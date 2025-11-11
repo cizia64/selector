@@ -18,7 +18,7 @@ C_SRCS   := $(wildcard src/extern/rotozoom/*.c)
 OBJS     := $(CPP_SRCS:.cpp=.o) $(C_SRCS:.c=.o)
 
 # Libraries (dynamic linking)
-LIBS := -lSDL2 -lSDL2_image -lSDL2_ttf -lSDL2_mixer -lpthread -lm -lz -ldl
+LIBS := -lSDL2main -lSDL2 -lSDL2_image -lSDL2_ttf -lSDL2_mixer -lpthread -lm -lz -ldl
 
 # Compile C++ files
 %.o: %.cpp

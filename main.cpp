@@ -41,11 +41,31 @@ int main(int argc, char* argv[])
     vec_string customChoices;
     int listFontSize = -1; // negative means use default
     //
+    auto unescapeString = [](const string &s) {
+        string out;
+        out.reserve(s.size());
+        for (size_t i = 0; i < s.size(); ++i) {
+            if (s[i] == '\\' && i + 1 < s.size()) {
+                ++i;
+                switch (s[i]) {
+                case 'n': out.push_back('\n'); break;
+                case 't': out.push_back('\t'); break;
+                case '\\': out.push_back('\\'); break;
+                case 'r': out.push_back('\r'); break;
+                default: out.push_back(s[i]); break;
+                }
+            } else {
+                out.push_back(s[i]);
+            }
+        }
+        return out;
+    };
+
     while (++arg < arguments.end())
     {
         if (*arg == "-t" && arg < arguments.end() - 1 &&
             (arg + 1)->length() > 0) // Set a title to the selector.
-            title = *++arg;
+            title = unescapeString(*++arg);
         else if (*arg == "-i" && arg < arguments.end() - 1) // Set a background image.
             backgroundImage = *++arg;
         else if (*arg == "-d" && arg < arguments.end() - 1) // Set a directory to select files from.
